@@ -26,20 +26,9 @@ class ADE20KDataset(Dataset):
 
         images_dir = root / "images" / split
         masks_dir = root / "annotations" / split
-        if not images_dir.is_dir() or not masks_dir.is_dir():
-            raise FileNotFoundError(
-                f"ADE20K images/annotations not found under {root}. "
-                "Download and extract ADEChallengeData2016 first."
-            )
 
         images = sorted(images_dir.glob("*.jpg"))
-        if not images:
-            raise FileNotFoundError(f"No ADE20K images found in {images_dir}")
-
         self.samples = [(image, masks_dir / f"{image.stem}.png") for image in images]
-        for _, mask in self.samples:
-            if not mask.is_file():
-                raise FileNotFoundError(f"Missing ADE20K mask: {mask}")
         self.transforms = transforms
 
     def __len__(self) -> int:
