@@ -1,31 +1,116 @@
-import torch
-import torchvision
+"""Dataset loading for the classification, detection, and segmentation experiments."""
 
-def get_dataset(split: str, dataset: str, data_dir: str, download: bool = True):
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision.datasets import CocoDetection, OxfordIIITPet
+
+
+class ADE20KDataset(Dataset):
+    """Read ADE20K scene-parsing images and segmentation masks from disk.
+
+    Expects the extracted ADEChallengeData2016/images and annotations folders.
+    The original mask IDs are 1..150, with 0 denoting ignored pixels; returned
+    masks use 0..149 and 255 for ignored pixels.
+    """
+
+    def __init__(self, root: str | Path, split: str = "validation", transforms=None):
+        if split not in ("training", "validation"):
+            raise ValueError(f"Unknown ADE20K split: {split}")
+
+        root = Path(root)
+        if (root / "ADEChallengeData2016").is_dir():
+            root = root / "ADEChallengeData2016"
+
+        images_dir = root / "images" / split
+        masks_dir = root / "annotations" / split
+        if not images_dir.is_dir() or not masks_dir.is_dir():
+            raise FileNotFoundError(
+                f"ADE20K images/annotations not found under {root}. "
+                "Download and extract ADEChallengeData2016 first."
+            )
+
+        images = sorted(images_dir.glob("*.jpg"))
+        if not images:
+            raise FileNotFoundError(f"No ADE20K images found in {images_dir}")
+
+        self.samples = [(image, masks_dir / f"{image.stem}.png") for image in images]
+        for _, mask in self.samples:
+            if not mask.is_file():
+                raise FileNotFoundError(f"Missing ADE20K mask: {mask}")
+        self.transforms = transforms
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, index: int):
+        image_path, mask_path = self.samples[index]
+        with Image.open(image_path) as image_file:
+            image = image_file.convert("RGB")
+        with Image.open(mask_path) as mask_file:
+            raw_mask = np.asarray(mask_file, dtype=np.uint8)
+
+        mapped_mask = np.where(raw_mask == 0, 255, raw_mask.astype(np.int16) - 1)
+        mask = Image.fromarray(mapped_mask.astype(np.uint8))
+
+        if self.transforms is not None:
+            image, mask = self.transforms(image, mask)
+        return image, mask
+
+
+def get_dataset(
+    split: str,
+    dataset: str,
+    data_dir: str | Path,
+    download: bool = False,
+    transform=None,
+    transforms=None,
+):
+    """Load a dataset without inventing train/validation partitions.
+
+    Oxford-IIIT Pet supports 'trainval' and 'test'. Split its trainval portion
+    using get_train_val_split, keeping the official test set untouched.
+    COCO and ADE20K are loaded from manually downloaded files. Use 'transforms'
+    for synchronized image/target transforms (particularly segmentation masks).
+    """
     if dataset == "Oxford-IIIT Pet classification":
-        if split == "train":
-            return torchvision.datasets.OxfordIIITPet(
-                root=data_dir, split="trainval", target_types="category", download=download
-            )
-        elif split == "val":
-            return torchvision.datasets.OxfordIIITPet(
-                root=data_dir, split="test", target_types="category", download=download
-            )
-        else:
-            raise ValueError(f"Unknown split: {split}")
+        if split not in ("trainval", "test"):
+            raise ValueError("Oxford-IIIT Pet supports 'trainval' and 'test'.")
+        return OxfordIIITPet(
+            root=data_dir,
+            split=split,
+            target_types="category",
+            download=download,
+            transform=transform,
+            transforms=transforms,
+        )
+
     if dataset == "COCO 2017 validation":
-        if split == "val":
-            return torchvision.datasets.CocoDetection(
-                root=f"{data_dir}/val2017",
-                annFile=f"{data_dir}/annotations/instances_val2017.json",
-                download=download,
-            )
-        else:
-            raise ValueError(f"Unknown split: {split}")
+        if split != "val":
+            raise ValueError("COCO 2017 validation supports only 'val'.")
+        if download:
+            raise ValueError("COCO must be downloaded and extracted manually.")
+        data_dir = Path(data_dir)
+        return CocoDetection(
+            root=str(data_dir / "val2017"),
+            annFile=str(data_dir / "annotations" / "instances_val2017.json"),
+            transform=transform,
+            transforms=transforms,
+        )
+
     if dataset == "ADE20K validation":
-        if split == "val":
-            return torchvision.datasets.ADE20K(
-                root=data_dir, split="validation", download=download
-            )
-        else:
-            raise ValueError(f"Unknown split: {split}")
+        if split != "val":
+            raise ValueError("ADE20K validation supports only 'val'.")
+        if download:
+            raise ValueError("ADE20K must be downloaded and extracted manually.")
+        if transform is not None:
+            raise ValueError("Use 'transforms' to transform ADE20K images and masks together.")
+        return ADE20KDataset(
+            root=data_dir,
+            split="validation",
+            transforms=transforms,
+        )
+
+    raise ValueError(f"Unknown dataset: {dataset}")
