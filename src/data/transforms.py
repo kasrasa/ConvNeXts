@@ -12,8 +12,8 @@ from torchvision.transforms import functional as F
 def image_transform(
     image: Image.Image,
     *,
-    mean: Sequence[float],
-    std: Sequence[float],
+    mean: Sequence[float] = (0.485, 0.456, 0.406),
+    std: Sequence[float] = (0.229, 0.224, 0.225),
     train: bool = False,
     size: tuple[int, int] = (224, 224),
     crop_params: tuple[int, int, int, int] | None = None,
@@ -77,8 +77,8 @@ def transforms(
     image: Image.Image,
     mask: Image.Image | None = None,
     *,
-    mean: Sequence[float],
-    std: Sequence[float],
+    mean: Sequence[float] = (0.485, 0.456, 0.406),
+    std: Sequence[float] = (0.229, 0.224, 0.225),
     train: bool = False,
     size: tuple[int, int] = (224, 224),
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:

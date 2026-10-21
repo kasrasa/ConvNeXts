@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader, Dataset
 
 def get_dataloader(
     dataset: Dataset,
-    split: str,
     batch_size: int,
     shuffle: bool = True,
     num_workers: int = 4,
@@ -19,8 +18,6 @@ def get_dataloader(
     tensors before default batching. For detection datasets with variable
     numbers of boxes, supply an appropriate collate_fn.
     """
-    if split not in ("train", "val", "test"):
-        raise ValueError(f"Unknown split: {split}")
     if batch_size < 1:
         raise ValueError("batch_size must be positive.")
     if num_workers < 0:
@@ -32,7 +29,7 @@ def get_dataloader(
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle if split == "train" else False,
+        shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=pin_memory,
         collate_fn=collate_fn,
