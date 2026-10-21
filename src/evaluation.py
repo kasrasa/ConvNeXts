@@ -16,15 +16,18 @@ from tqdm.auto import tqdm
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device):
-    """Train one epoch using the parameters configured as trainable by the caller.
+    """Train one epoch with the trainable parameters selected by the caller.
 
-    Frozen BatchNorm modules keep their running statistics unchanged.
+    Fully frozen submodules remain in eval mode, preventing BatchNorm
+    statistics and stochastic layers from changing in frozen stages.
     """
     model.train()
     for module in model.modules():
-        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
-            if not any(param.requires_grad for param in module.parameters()):
-                module.eval()
+        if module is model:
+            continue
+        parameters = tuple(module.parameters())
+        if parameters and not any(param.requires_grad for param in parameters):
+            module.eval()
 
     running_loss = 0.0
     correct_predictions = 0
