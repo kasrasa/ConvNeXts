@@ -15,22 +15,16 @@ from sklearn.metrics import (
 from tqdm.auto import tqdm
 
 
-def train_one_epoch(model, dataloader, criterion, optimizer, device, head_only=False):
-    """Train for one epoch; return sample-weighted loss and accuracy.
+def train_one_epoch(model, dataloader, criterion, optimizer, device):
+    """Train one epoch using the parameters configured as trainable by the caller.
 
-    For head_only=True, keep the frozen backbone in evaluation mode.
-    For partial fine-tuning, frozen BatchNorm layers also keep their
-    pretrained running statistics rather than updating them.
+    Frozen BatchNorm modules keep their running statistics unchanged.
     """
     model.train()
-    if head_only:
-        model.eval()
-        model.get_classifier().train()
-    else:
-        for module in model.modules():
-            if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
-                if not any(param.requires_grad for param in module.parameters()):
-                    module.eval()
+    for module in model.modules():
+        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+            if not any(param.requires_grad for param in module.parameters()):
+                module.eval()
 
     running_loss = 0.0
     correct_predictions = 0
