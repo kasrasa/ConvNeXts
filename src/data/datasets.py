@@ -58,14 +58,17 @@ def get_dataset(
     data_dir: str | Path,
     download: bool = False,
     transform=None,
-    transforms=None,
 ):
-    """Load a dataset without inventing train/validation partitions.
+    """Load an official dataset partition; transformations are optional.
 
-    Oxford-IIIT Pet supports 'trainval' and 'test'. Split its trainval portion
-    using get_train_val_split, keeping the official test set untouched.
-    COCO and ADE20K are loaded from manually downloaded files. Use 'transforms'
-    for synchronized image/target transforms (particularly segmentation masks).
+    For classification, transform(image) preprocesses only the image.
+    For detection or segmentation, transform(image, target) must update
+    the image and its target together (boxes or pixel-level masks).
+
+    To use training-set normalization, first load raw Oxford-IIIT Pet
+    trainval data, split it, and calculate mean/std on the training subset.
+    Then load the same partition with the desired train/evaluation transforms.
+    The transforms run when samples are accessed, not during construction.
     """
     if dataset == "Oxford-IIIT Pet classification":
         if split not in ("trainval", "test"):
@@ -76,7 +79,6 @@ def get_dataset(
             target_types="category",
             download=download,
             transform=transform,
-            transforms=transforms,
         )
 
     if dataset == "COCO 2017 validation":
@@ -88,8 +90,7 @@ def get_dataset(
         return CocoDetection(
             root=str(data_dir / "val2017"),
             annFile=str(data_dir / "annotations" / "instances_val2017.json"),
-            transform=transform,
-            transforms=transforms,
+            transforms=transform,
         )
 
     if dataset == "ADE20K validation":
@@ -97,12 +98,10 @@ def get_dataset(
             raise ValueError("ADE20K validation supports only 'val'.")
         if download:
             raise ValueError("ADE20K must be downloaded and extracted manually.")
-        if transform is not None:
-            raise ValueError("Use 'transforms' to transform ADE20K images and masks together.")
         return ADE20KDataset(
             root=data_dir,
             split="validation",
-            transforms=transforms,
+            transforms=transform,
         )
 
     raise ValueError(f"Unknown dataset: {dataset}")
