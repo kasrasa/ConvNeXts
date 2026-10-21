@@ -1,4 +1,5 @@
 import torch
+import tqdm
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_auc_score, average_precision_score
 import torch.nn.functional as F
 import numpy as np
@@ -63,7 +64,7 @@ def evaluate(model, test_dataloader, device):
     all_probs = []
 
     with torch.no_grad():
-        for images, labels in test_dataloader:
+        for images, labels in tqdm.tqdm(test_dataloader, desc="Evaluating"):
             images, labels = images.to(device), labels.to(device)
 
             outputs = model(images)
