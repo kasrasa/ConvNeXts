@@ -221,3 +221,9 @@ data/*
 
 # Mac
 .DS_Store
+
+# Locally generated model checkpoints and raw predictions
+results/**/*.pt
+results/**/*.pth
+results/**/*.ckpt
+results/**/*.npz
