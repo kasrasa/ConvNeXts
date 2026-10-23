@@ -63,55 +63,72 @@ def validate(model, dataloader, criterion, device):
     return running_loss / total_samples, correct_predictions / total_samples
 
 
-def inference_time(model, input_tensor, device, num_iterations=100):
-    """Measure average inference time per iteration for a model on a device.
+def _synchronize(device):
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    elif device.type == "mps":
+        torch.mps.synchronize()
 
-    The input_tensor should be preloaded to the same device as the model.
+
+def benchmark_inference(model, input_tensor, device, num_iterations=100,
+                        warmup_iterations=10, repeats=5):
+    """Time forward-only batches; count FLOPs separately for one batch.
+
+    Each sample is the average batch time over num_iterations, not an
+    individual-request latency. Transfers and FLOP instrumentation are excluded.
+    FLOPs cover operators registered by PyTorch; multiply-add counts as two.
     """
-    model.to(device)
-    model.eval()
-    flop_counter = FlopCounterMode(model, input_tensor)
+    import statistics
 
+    device = torch.device(device)
+    if device.type not in {"cpu", "cuda", "mps"}:
+        raise ValueError(f"Unsupported device: {device}")
+    for name, value in (("num_iterations", num_iterations),
+                        ("warmup_iterations", warmup_iterations), ("repeats", repeats)):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ValueError(f"{name} must be a positive integer.")
+    if input_tensor.ndim == 0 or input_tensor.shape[0] < 1:
+        raise ValueError("input_tensor must have a nonempty batch dimension.")
+    model.to(device).eval()
+    input_tensor = input_tensor.to(device)
+    # Resolve an unindexed device (e.g. cuda) to the actual input device.
+    device = input_tensor.device
+    batch_size = input_tensor.shape[0]
+    samples = []
     with torch.inference_mode():
-        for _ in range(10):
-            _ = model(input_tensor)
-    with flop_counter:
-        if device == "mps":
-            torch.mps.synchronize()
+        for _ in range(warmup_iterations):
+            model(input_tensor)
+        for _ in range(repeats):
+            _synchronize(device)
+            start = time.perf_counter()
+            for _ in range(num_iterations):
+                model(input_tensor)
+            _synchronize(device)
+            samples.append((time.perf_counter() - start) / num_iterations)
+        # One forward pass, outside every timed region.
+        with FlopCounterMode(display=False) as counter:
+            model(input_tensor)
+        _synchronize(device)
+    total_flops = int(counter.get_total_flops())
+    median_seconds = statistics.median(samples)
+    return {
+        "device": str(device), "dtype": str(input_tensor.dtype),
+        "input_shape": list(input_tensor.shape), "batch_size": batch_size,
+        "num_iterations": num_iterations, "warmup_iterations": warmup_iterations,
+        "repeats": repeats, "batch_seconds_samples": samples,
+        "batch_latency_ms": median_seconds * 1000,
+        "batch_latency_min_ms": min(samples) * 1000,
+        "batch_latency_max_ms": max(samples) * 1000,
+        "throughput_images_per_second": batch_size / median_seconds,
+        "throughput_min_images_per_second": batch_size / max(samples),
+        "throughput_max_images_per_second": batch_size / min(samples),
+        "flops_per_batch": total_flops,
+        "gflops_per_image": total_flops / batch_size / 1e9,
+        "parameters": sum(p.numel() for p in model.parameters()),
+    }
 
-            start_time = time.time()
-            with torch.inference_mode():
-                for _ in range(num_iterations):
-                    _ = model(input_tensor)
-            end_time = time.time()
 
-            elapsed_time = end_time - start_time
-            avg_time_per_iteration = elapsed_time / num_iterations
-        elif device == "cuda":
-            start_event = torch.cuda.Event(enable_timing=True)
-            end_event = torch.cuda.Event(enable_timing=True)
-
-            start_event.record()
-            with torch.inference_mode():
-                for _ in range(num_iterations):
-                    _ = model(input_tensor)
-            end_event.record()
-            torch.cuda.synchronize()
-
-            elapsed_time = start_event.elapsed_time(end_event) / 1000.0
-            avg_time_per_iteration = elapsed_time / num_iterations
-        elif device == "cpu":
-            start_time = time.time()
-            with torch.inference_mode():
-                for _ in range(num_iterations):
-                    _ = model(input_tensor)
-            end_time = time.time()
-
-            elapsed_time = end_time - start_time
-            avg_time_per_iteration = elapsed_time / num_iterations
-        else:
-            raise ValueError(f"Unsupported device: {device}")
-
-    total_flops = flop_counter.total_flops()
-
-    return avg_time_per_iteration, total_flops
+def inference_time(model, input_tensor, device, num_iterations=100):
+    """Compatibility wrapper returning seconds/batch and FLOPs for ONE batch."""
+    result = benchmark_inference(model, input_tensor, device, num_iterations, repeats=1)
+    return result["batch_seconds_samples"][0], result["flops_per_batch"]

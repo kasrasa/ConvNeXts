@@ -134,3 +134,53 @@ def plot_AUC_PR(y_true, y_scores, model_name, class_index=None):
     ax.legend()
     plt.tight_layout()
     plt.show()
+
+
+def plot_inference_results(results, output_dir):
+    """Save uncluttered PNGs per batch size; whiskers span repeat means.
+
+    Keep distinct hardware/precision runs in separate result collections.
+    Returns paths and closes figures so rerunning does not accumulate figures.
+    """
+    from pathlib import Path
+
+    if not results:
+        raise ValueError("No inference results to plot.")
+    settings = {(r["device"], r["dtype"], tuple(r["input_shape"][1:])) for r in results}
+    if len(settings) != 1:
+        raise ValueError("Plot one device, dtype and image shape at a time.")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    colors = {"convnext_tiny": "#007D8A", "swin_tiny": "#B45B13", "resnet50": "#7563A5"}
+    labels = {"convnext_tiny": "ConvNeXt-Tiny", "swin_tiny": "Swin-Tiny", "resnet50": "ResNet-50"}
+    paths = []
+    for batch_size in sorted({r["batch_size"] for r in results}):
+        rows = [r for r in results if r["batch_size"] == batch_size]
+        names = [r["model"] for r in rows]
+        if len(set(names)) != len(names):
+            raise ValueError("Duplicate model/batch results; use one benchmark run per plot.")
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+        panels = [
+            ("gflops_per_image", "GFLOPs / image", None, None),
+            ("batch_latency_ms", "Batch latency (ms)", "batch_latency_min_ms", "batch_latency_max_ms"),
+            ("throughput_images_per_second", "Throughput (images/s)",
+             "throughput_min_images_per_second", "throughput_max_images_per_second"),
+        ]
+        for ax, (key, label, low, high) in zip(axes, panels):
+            values = np.array([r[key] for r in rows])
+            errors = None if low is None else np.array([
+                values - [r[low] for r in rows], [r[high] for r in rows] - values])
+            ax.bar(range(len(rows)), values, color=[colors.get(n, "#777777") for n in names],
+                   yerr=errors, capsize=4, width=0.6)
+            ax.set_xticks(range(len(rows)), [labels.get(n, n) for n in names], rotation=20, ha="right")
+            ax.set_ylabel(label)
+            ax.set_ylim(bottom=0)
+            ax.spines[["top", "right"]].set_visible(False)
+            ax.grid(axis="y", alpha=0.2)
+            ax.set_axisbelow(True)
+        fig.tight_layout()
+        path = output_dir / f"inference_batch_{batch_size}.png"
+        fig.savefig(path, dpi=220, bbox_inches="tight")
+        plt.close(fig)
+        paths.append(path)
+    return paths
