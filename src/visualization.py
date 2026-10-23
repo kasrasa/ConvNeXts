@@ -156,7 +156,8 @@ def plot_inference_results(results, output_dir):
     paths = []
     for batch_size in sorted({r["batch_size"] for r in results}):
         rows = [r for r in results if r["batch_size"] == batch_size]
-        names = [r["model"] for r in rows]
+        # Accept previous exports as well as classification-style identifiers.
+        names = [r["model_id"] if "model_id" in r else r["model"] for r in rows]
         if len(set(names)) != len(names):
             raise ValueError("Duplicate model/batch results; use one benchmark run per plot.")
         fig, axes = plt.subplots(1, 3, figsize=(12, 4))
