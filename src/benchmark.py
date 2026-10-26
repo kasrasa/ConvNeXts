@@ -1,5 +1,6 @@
 import torch
 import time
+import statistics
 from torch.utils.flop_counter import FlopCounterMode
 
 
@@ -78,21 +79,14 @@ def benchmark_inference(model, input_tensor, device, num_iterations=100,
     individual-request latency. Transfers and FLOP instrumentation are excluded.
     FLOPs cover operators registered by PyTorch; multiply-add counts as two.
     """
-    import statistics
-
     device = torch.device(device)
     if device.type not in {"cpu", "cuda", "mps"}:
         raise ValueError(f"Unsupported device: {device}")
-    for name, value in (("num_iterations", num_iterations),
-                        ("warmup_iterations", warmup_iterations), ("repeats", repeats)):
-        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-            raise ValueError(f"{name} must be a positive integer.")
     if input_tensor.ndim == 0 or input_tensor.shape[0] < 1:
         raise ValueError("input_tensor must have a nonempty batch dimension.")
+    
     model.to(device).eval()
     input_tensor = input_tensor.to(device)
-    # Resolve an unindexed device (e.g. cuda) to the actual input device.
-    device = input_tensor.device
     batch_size = input_tensor.shape[0]
     samples = []
     with torch.inference_mode():
@@ -105,7 +99,7 @@ def benchmark_inference(model, input_tensor, device, num_iterations=100,
                 model(input_tensor)
             _synchronize(device)
             samples.append((time.perf_counter() - start) / num_iterations)
-        # One forward pass, outside every timed region.
+
         with FlopCounterMode(display=False) as counter:
             model(input_tensor)
         _synchronize(device)
