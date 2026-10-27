@@ -66,3 +66,23 @@ def save_predictions(predictions, path):
         probabilities=predictions["probabilities"],
     )
     return path
+
+
+def save_inference_results(results, output_dir, metadata=None):
+    """Save full timing samples to JSON and scalar summaries to CSV."""
+    import csv
+
+    if not results:
+        raise ValueError("No inference results to save.")
+    output_dir = Path(output_dir)
+    json_path = save_json({"metadata": metadata or {}, "results": results},
+                          output_dir / "inference_results.json")
+    rows = [{key: value for key, value in row.items()
+             if not isinstance(value, (list, dict, tuple))} for row in results]
+    fields = list(dict.fromkeys(key for row in rows for key in row))
+    csv_path = output_dir / "inference_summary.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    return {"json": json_path, "csv": csv_path}
